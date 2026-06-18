@@ -1,128 +1,143 @@
 # GROMODEX
 
-**GROMODEX** is a Python script designed to automate a **Design of Experiments (DoE)** for **GROMACS** Molecular Dynamics (MD) performance optimization.  
-It generates a full-factorial experimental design for MD parameters, runs the simulations, monitors GPU usage, and collects performance metrics automatically.
+GROMODEX benchmarks GROMACS molecular dynamics performance with a deterministic full-factorial Design of Experiments (DOE). It can be used as a normal Python CLI or as a local MCP server so an agent can preview designs, generate CSVs, collect results, and launch controlled GROMACS runs.
 
----
+## Project provenance
 
-## Features
+This repository is a refactored fork of the original GROMDEX project. The refactor of this fork, including the package layout, CLI/MCP interface, typing, testing, and development tooling, was carried out by Fabio Bove at NeoraLab.
 
-1. **Full-factorial DoE generation**  
-   Generates all combinations of MD parameters, including:
-   - Number of MPI processes per GPU (`ntmpi`)
-   - CPU pinning configuration (`on/off`)
-   - GPU task distribution patterns
-   - CPU/GPU assignment for bonded and update calculations
+The original scientific work and citation remain attributed to the authors listed in the Citation section.
 
-2. **Automated MD runs**  
-   Executes all parameter combinations using GROMACS, creating a dedicated directory for each simulation.
+## Project shape
 
-3. **GPU monitoring**  
-   Tracks GPU load and memory usage in real time during each run, saving data to CSV files.
+GROMODEX is now a small source-layout package:
 
-4. **Performance collection**  
-   Extracts performance metrics (`ns/day`) from GROMACS log files and stores them in a summary CSV file.
-
-5. **Detailed logging**  
-   Creates a `doe.log` file with step-by-step progress, executed commands, and potential errors.
-
----
+- `gromodex` CLI for local workflows.
+- `gromodex-mcp` FastMCP server for agent use.
+- Pydantic schemas for inputs and outputs.
+- Standard-library DOE and CSV handling instead of `pyDOE3`, `numpy`, and `pandas`.
+- Subprocess calls use argument lists, not `shell=True`.
+- uv, ruff, mypy, pytest, pre-commit, and MkDocs configuration.
 
 ## Requirements
 
-- **Python** ≥ 3.8  
-- [**GROMACS**](http://www.gromacs.org/) installed and accessible via command line  
-- **Python dependencies:**
-  ```bash
-  pip install pyDOE3 numpy pandas GPUtil
-  ```
-- Hardware: 2–4 GPUs (configurable in the script)
+- Python 3.11 or newer
+- [uv](https://docs.astral.sh/uv/)
+- GROMACS available as `gmx` or via `--gmx-bin`
+- NVIDIA GPU telemetry through `GPUtil` for GPU usage CSVs
 
----
+## Install for development
 
-## Usage
-1. Prepare input files
-Ensure your .mdp, .gro, and .top files are located in the correct directory.
-If they are elsewhere, adjust their relative paths inside the script.
-
-2. Configure GPU settings
-At the top of the script, set the number of GPUs to use:
-
-gpu = 2  # Number of GPUs (supported: 2, 3, or 4)
-3. Run the script
-Execute the script with:
-  
 ```bash
-python gromodex.py
+uv sync --extra dev
 ```
 
-## Output Files
-File	Description
-gmx_fullfact_doe.csv	Full-factorial design of experiments
-gmx_fullfact_doe_results.csv	DOE results including performance metrics
-gpu_usage_runX.csv	GPU usage data recorded for each run
-doe.log	Log file containing workflow progress and errors
+## CLI usage
 
----
+Preview the DOE:
 
-## Workflow Overview
-Generate all MD parameter combinations using a full-factorial design
+```bash
+uv run gromodex preview --gpu-count 2 --limit 5
+```
 
-Prepare simulation inputs with gmx grompp
+Generate the design CSV:
 
-For each design point:
+```bash
+uv run gromodex generate --gpu-count 2 --output gmx_fullfact_doe.csv
+```
 
-Create a dedicated run directory
+Run the full DOE:
 
-Copy necessary input files
+```bash
+uv run gromodex run \
+  --workspace runs/example \
+  --gpu-count 2 \
+  --mdp input/md.mdp \
+  --gro input/system.gro \
+  --topology input/topol.top
+```
 
-Execute gmx mdrun with parameters defined by the DoE
+Collect results from existing numbered run folders:
 
-Monitor GPU load and memory usage
+```bash
+uv run gromodex collect \
+  --workspace runs/example \
+  --design runs/example/gmx_fullfact_doe.csv \
+  --output runs/example/gmx_fullfact_doe_results.csv
+```
 
-Remove unnecessary temporary files
+## Agent CLI usage
 
-Extract simulation performance (ns/day) from each md.log file
+Shell-capable agents can discover the CLI without MCP:
 
-Aggregate results into a summary CSV file for analysis
+```bash
+uv run gromodex tools
+```
 
----
+The command prints a JSON manifest with available commands, arguments, side effects, and a recommended workflow. All operational CLI commands also print JSON to stdout.
 
-## Notes
-The script supports configurations with 2 to 4 GPUs.
+## MCP usage
 
-GPU task distributions and MPI settings are predefined for each GPU count.
+Run over stdio, which is the safest local agent transport:
 
-The number of simulation steps (-nsteps 25000) and other GROMACS flags can be customized directly in the script.
+```bash
+uv run gromodex-mcp --transport stdio
+```
 
-The system must include the grep command (used for performance extraction).
+Example MCP command configuration:
 
-Ensure that all runs have sufficient permissions to create and modify directories.
+```json
+{
+  "mcpServers": {
+    "gromodex": {
+      "command": "uv",
+      "args": ["run", "gromodex-mcp", "--transport", "stdio"],
+      "cwd": "/path/to/GROMODEX"
+    }
+  }
+}
+```
 
----
+Available tools:
 
- ## Author
-#### Marco Savioli 
-Department of Mathematics, University of Rome Tor Vergata, Via della Ricerca Scientifica 1, Rome 00133, Italy.
-#### Paolo Calligari
-Department of Chemical Sciences and Technology, University of Rome Tor Vergata, Via della Ricerca Scientifica 1, Rome 00133, Italy.
-#### Ugo Locatelli
-Department of Mathematics, University of Rome Tor Vergata, Via della Ricerca Scientifica 1, Rome 00133, Italy.
-#### Gianfranco Bocchinfuso 
-Department of Chemical Sciences and Technology, University of Rome Tor Vergata, Via della Ricerca Scientifica 1, Rome 00133, Italy.
+- `server_info`
+- `preview_doe`
+- `generate_doe`
+- `collect_doe_results`
+- `run_gromacs_doe`
 
----
+## Documentation
 
-## Citation / Reference
-If you use GROMODEX in your research or publication, please cite it as:
+Build the local docs site:
 
-GROMODEX: Optimisation of GROMACS Performance through a Design of Experiment Approach
-Marco Savioli, Paolo Calligari, Ugo Locatelli, Gianfranco Bocchinfuso
+```bash
+uv run mkdocs build --strict
+```
+
+## Development checks
+
+```bash
+uv run ruff format --check
+uv run ruff check
+uv run mypy
+uv run pytest
+uv run mkdocs build --strict
+```
+
+Install local pre-commit hooks:
+
+```bash
+uv run pre-commit install
+```
+
+## Citation
+
+If you use GROMODEX in research or publications, cite:
+
+GROMODEX: Optimisation of GROMACS Performance through a Design of Experiment Approach  
+Marco Savioli, Paolo Calligari, Ugo Locatelli, Gianfranco Bocchinfuso  
 bioRxiv 2025.10.08.681202; doi: https://doi.org/10.1101/2025.10.08.681202
 
----
-
 ## License
-This project is released without a specific license.
-You are free to use, modify, and adapt it for research and educational purposes.
-If used in publications or derivative works, please provide proper attribution to the author.
+
+This project is released without a specific license. You are free to use, modify, and adapt it for research and educational purposes. If used in publications or derivative works, provide proper attribution to the authors.
